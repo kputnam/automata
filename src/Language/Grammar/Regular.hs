@@ -1,4 +1,4 @@
-module Language.Automata.Finite.RegularExpression where
+module Language.Grammar.Regular where
 
 import qualified Language.Automata.Finite.Nondeterministic as N
 
@@ -14,4 +14,8 @@ data Regexp a
 -- pretty :: Regexp Char -> String
 
 toNFA :: Regexp a -> N.NFA Int a
-toNFA = undefined
+toNFA Empty        = undefined
+toNFA (Literal _)  = undefined
+toNFA (Concat _ _) = undefined
+toNFA (Choose _ _) = undefined
+toNFA (Repeat _)   = undefined
