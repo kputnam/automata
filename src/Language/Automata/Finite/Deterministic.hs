@@ -1,23 +1,27 @@
 module Language.Automata.Finite.Deterministic
   ( build
-  , step
   , eval
   ) where
 
 import Prelude hiding (lookup)
-import Data.Map (Map, fromList, lookup)
-import Data.List (foldl')
 import Data.Maybe (fromMaybe)
+import Data.List (foldl')
+import Data.Map (Map, fromListWith, fromList, union,
+                 singleton, lookup, empty, unionWith)
 
 data State s t
   = Stuck
   | State s Bool (Map t s)
   deriving (Eq, Show, Read)
 
-build :: (Ord s, Ord t) => [(s, [(t, s)])] -> [s] -> Map s (State s t)
-build states accept = fromList (map state states)
+build :: (Ord s, Ord t) => [(s, t, s)] -> [s] -> Map s (State s t)
+build trans accept = unionWith combine incoming outgoing
   where
-    state (s, ts) = (s, State s (s `elem` accept) (fromList ts))
+    combine (State s b m) (State _ _ n) = State s b (m `union` n)
+    incoming = fromList (map fromAccept accept)
+    outgoing = fromListWith combine (map fromTrans trans)
+    fromAccept s        = (s, State s True empty)
+    fromTrans (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
 
 step :: (Ord s, Ord t) => Map s (State s t) -> State s t -> t -> State s t
 step _ Stuck _          = Stuck
