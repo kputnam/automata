@@ -1,5 +1,6 @@
 module Language.Automata.Finite.Deterministic
-  ( build
+  ( DFA
+  , build
   , eval
   ) where
 
@@ -14,8 +15,12 @@ data State s t
   | State s Bool (Map t s)
   deriving (Eq, Show, Read)
 
-build :: (Ord s, Ord t) => [(s, t, s)] -> [s] -> Map s (State s t)
-build trans accept = unionWith combine incoming outgoing
+newtype DFA s t
+  = DFA { getM :: Map s (State s t) }
+  deriving (Eq, Show, Read)
+
+build :: (Ord s, Ord t) => [(s, t, s)] -> [s] -> DFA s t
+build trans accept = DFA (unionWith combine incoming outgoing)
   where
     combine (State s b m) (State _ _ n) = State s b (m `union` n)
     incoming = fromList (map fromAccept accept)
@@ -23,14 +28,14 @@ build trans accept = unionWith combine incoming outgoing
     fromAccept s        = (s, State s True empty)
     fromTrans (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
 
-step :: (Ord s, Ord t) => Map s (State s t) -> State s t -> t -> State s t
+step :: (Ord s, Ord t) => DFA s t -> State s t -> t -> State s t
 step _ Stuck _          = Stuck
 step m (State _ _ ts) t = case lookup t ts of
   Nothing -> Stuck
-  Just s  -> fromMaybe Stuck (lookup s m)
+  Just s  -> fromMaybe Stuck (lookup s (getM m))
 
-eval :: (Ord s, Ord t) => Map s (State s t) -> s -> [t] -> Bool
-eval m s = accept . foldl' (step m) (fromMaybe Stuck (lookup s m))
+eval :: (Ord s, Ord t) => DFA s t -> s -> [t] -> Bool
+eval m s = accept . foldl' (step m) (fromMaybe Stuck (lookup s (getM m)))
   where
     accept Stuck         = False
     accept (State _ x _) = x
