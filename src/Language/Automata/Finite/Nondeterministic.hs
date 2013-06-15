@@ -1,15 +1,16 @@
 module Language.Automata.Finite.Nondeterministic
   ( NFA
   , Token(..)
+  , State(State)
   , build
   , eval
   , toDFA
   ) where
 
-import Prelude hiding (lookup, read, null)
+import Prelude hiding (lookup, read)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map, lookup, fromListWith, unionWith)
-import Data.Set (Set, empty, insert, fold, union, toList, null)
+import Data.Set (Set, empty, insert, fold, union, toList)
 import Data.List (foldl')
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -46,13 +47,11 @@ read m (State _ _ ts) t = case lookup t ts of
   where f s r = maybe r (`insert` r) (lookup s (getM m))
 
 free :: (Ord s, Ord t) => NFA s t -> State s t -> Set (State s t)
-free m s = if null ss
-             then ss
-             else fold union ss (S.map (free m) ss)
+free m s = s `insert` fold union ss (S.map (free m) ss)
   where ss = read m s Epsilon
 
 step :: (Ord s, Ord t) => NFA s t -> State s t -> t -> Set (State s t)
-step m s t = fold (union . free m) (read m s (Token t)) empty
+step m s t = fold (union . free m) empty (read m s (Token t))
 
 eval :: (Ord s, Ord t) => NFA s t -> s -> [t] -> Bool
 eval m i = any accept . toList . foldl' step' (start `insert` free m start)
