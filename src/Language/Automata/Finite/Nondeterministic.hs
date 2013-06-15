@@ -55,9 +55,9 @@ step :: (Ord s, Ord t) => NFA s t -> State s t -> t -> Set (State s t)
 step m s t = fold (union . free m) (read m s (Token t)) empty
 
 eval :: (Ord s, Ord t) => NFA s t -> s -> [t] -> Bool
-eval m i = any accept . toList . foldl' step' start
+eval m i = any accept . toList . foldl' step' (start `insert` free m start)
   where
-    start      = free m (fromMaybe Stuck (lookup i (getM m)))
+    start      = fromMaybe Stuck (lookup i (getM m))
     step' ss t = fold (\s -> union (step m s t)) empty ss
     accept Stuck         = False
     accept (State _ x _) = x
