@@ -1,5 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Language.Automata.Finite.Nondeterministic
   ( NFA
   , Token(..)
@@ -8,6 +6,9 @@ module Language.Automata.Finite.Nondeterministic
   , toList
   , eval
   , toDFA
+  , invertDFA
+  , minimizeDFA
+  , renumberNFA
   ) where
 
 import Prelude hiding (lookup, read)
@@ -15,6 +16,9 @@ import Data.Maybe (fromMaybe)
 import Data.Map (Map, lookup, fromListWith, unionWith, elems)
 import Data.Set (Set, empty, insert, fold, union, member)
 import Data.List (foldl')
+import Control.Arrow (first, second)
+import Control.Applicative ((<$>), (<*>))
+import Control.Monad.State (gets, modify, evalState)
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Language.Automata.Finite.Deterministic as D
@@ -76,7 +80,53 @@ eval m = any accept . S.toList . foldl' step' (free m (start m))
     accept Stuck         = False
     accept (State _ x _) = x
 
-toDFA :: forall s t. (Ord s, Ord t) => NFA s t -> D.DFA (Set s) t
+renumberNFA :: (Ord s, Ord t) => NFA s t -> NFA Int t
+renumberNFA m = let (ts', as', ss') = evalState rebuild (0, M.empty)
+                in fromList ts' as' ss'
+  where
+    (ts, as, ss) = toList m
+
+    rebuild = do
+      ss' <- index ss
+      as' <- mapM index as
+      ts' <- mapM edges ts
+      return (ts', as', ss')
+
+    fresh = do
+      n <- gets fst
+      modify (first (+1))
+      return n
+
+    store s = do
+      n <- fresh
+      modify (second (M.insert s n))
+      return n
+
+    index s = do
+      k <- gets snd
+      maybe (store s) return (M.lookup s k)
+
+    edges (a, t, b) = do
+      a' <- index a
+      b' <- index b
+      return (a', t, b')
+
+invertDFA :: (Bounded s, Enum s, Ord s, Ord t) => D.DFA s t -> NFA s t
+invertDFA m = fromList (ss' ++ ts') as' s'
+  where
+    (ts, as, s) = D.toList m
+    ts'  = map (\(a, t, b) -> (b, Token t, a)) ts
+    ss'  = map (\a -> (s', Epsilon, a)) as
+    as'  = [s]
+    s'   = maybe minBound succ (max' ts)
+    max' = max <$> foldr (max . Just . (\(a, _, _) -> a)) Nothing
+               <*> foldr (max . Just . (\(_, _, b) -> b)) Nothing
+
+minimizeDFA :: (Bounded s, Enum s, Ord s, Ord t) => D.DFA s t -> D.DFA Int t
+minimizeDFA = D.renumberDFA . toDFA . invertDFA .
+              D.renumberDFA . toDFA . invertDFA
+
+toDFA :: (Ord s, Ord t) => NFA s t -> D.DFA (Set s) t
 toDFA m = let (ts, as) = loop empty [flatten start']
            in D.fromList ts as (label start')
   where
@@ -85,7 +135,7 @@ toDFA m = let (ts, as) = loop empty [flatten start']
     dummy s = State s False M.empty
     label   = S.map (\(State s _ _) -> s)
 
-    loop :: Set (Set s) -> [State (Set s) t] -> ([(Set s, t, Set s)], [Set s])
+    -- loop :: Set (Set s) -> [State (Set s) t] -> ([(Set s, t, Set s)], [Set s])
     loop = loop' ([], [])
       where
         loop' acc _    []   = acc
@@ -99,7 +149,7 @@ toDFA m = let (ts, as) = loop empty [flatten start']
                                   xs''  = xs ++ xs'
                                in loop' (ts'', as'') done' xs''
 
-    tuple :: State (Set s) t -> ([(Set s, t, Set s)], [Set s])
+    -- tuple :: State (Set s) t -> ([(Set s, t, Set s)], [Set s])
     tuple (State s b t) = (trans, accept)
       where
         trans  = map (\(Token t', s') -> (s, t', join s')) (M.toList t)
@@ -110,7 +160,8 @@ toDFA m = let (ts, as) = loop empty [flatten start']
     -- State 2 F (a -> {2,3})
     -- ---------------------------------
     -- State {1,2} T (a -> {{1,2},{2,3}}
-    flatten :: Set (State s t) -> State (Set s) t
+    --
+    -- flatten :: Set (State s t) -> State (Set s) t
     flatten ss = State (label freed) (accept freed) (edges freed)
       where
         freed     = fold (union . free m) empty ss

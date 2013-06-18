@@ -3,6 +3,7 @@ module Language.Automata.Finite.Deterministic
   , fromList
   , toList
   , eval
+  , renumberDFA
   ) where
 
 import Prelude hiding (lookup)
@@ -11,6 +12,9 @@ import Data.List (foldl')
 import Data.Map (Map, fromListWith, union, singleton,
                  elems, lookup, empty, unionWith)
 import qualified Data.Map as M
+
+import Control.Arrow (first, second)
+import Control.Monad.State (gets, modify, evalState)
 
 data State s t
   = Stuck
@@ -53,3 +57,35 @@ eval m = accept . foldl' (step m) (start m)
   where
     accept Stuck         = False
     accept (State _ x _) = x
+
+--renumberDFA :: forall s t. (Ord s, Ord t) => DFA s t -> DFA Int t
+renumberDFA :: (Ord s, Ord t) => DFA s t -> DFA Int t
+renumberDFA m = let (ts', as', ss') = evalState rebuild (0, M.empty)
+                in fromList ts' as' ss'
+  where
+    (ts, as, ss) = toList m
+
+    rebuild = do
+      ss' <- index ss
+      as' <- mapM index as
+      ts' <- mapM edges ts
+      return (ts', as', ss')
+
+    fresh = do
+      n <- gets fst
+      modify (first (+1))
+      return n
+
+    store s = do
+      n <- fresh
+      modify (second (M.insert s n))
+      return n
+
+    index s = do
+      k <- gets snd
+      maybe (store s) return (M.lookup s k)
+
+    edges (a, t, b) = do
+      a' <- index a
+      b' <- index b
+      return (a', t, b')
