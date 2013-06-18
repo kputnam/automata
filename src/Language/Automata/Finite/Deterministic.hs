@@ -30,10 +30,12 @@ fromList :: (Ord s, Ord t) => [(s, t, s)] -> [s] -> s -> DFA s t
 fromList edges accept k = DFA table' start'
   where
     table' = unionWith combine incoming outgoing
-    start' = fromMaybe Stuck (lookup k table')
+    start' = fromMaybe (State k (k `elem` accept) empty) (lookup k table')
+
     combine (State s b m) (State _ _ n) = State s b (m `union` n)
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdges edges)
+
     fromAccept s        = (s, State s True empty)
     fromEdges (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
 
@@ -58,14 +60,13 @@ eval m = accept . foldl' (step m) (start m)
     accept Stuck         = False
     accept (State _ x _) = x
 
---renumberDFA :: forall s t. (Ord s, Ord t) => DFA s t -> DFA Int t
 renumberDFA :: (Ord s, Ord t) => DFA s t -> DFA Int t
-renumberDFA m = let (ts', as', ss') = evalState rebuild (0, M.empty)
-                in fromList ts' as' ss'
+renumberDFA m
+  = let (ts', as', ss') = evalState rebuild (0, M.empty)
+     in fromList ts' as' ss'
   where
-    (ts, as, ss) = toList m
-
     rebuild = do
+      let (ts, as, ss) = toList m
       ss' <- index ss
       as' <- mapM index as
       ts' <- mapM edges ts
