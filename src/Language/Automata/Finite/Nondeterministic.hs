@@ -29,23 +29,27 @@ data Token t
   | Token t
   deriving (Eq, Show, Read, Ord)
 
-newtype NFA s t
-  = NFA { getM :: Map s (State s t) }
+data NFA s t
+  = NFA { table :: Map s (State s t)
+        , start :: State s t }
   deriving (Eq, Show, Read)
 
-fromList :: (Ord s, Ord t) => [(s, Token t, s)] -> [s] -> NFA s t
-fromList edges accept = NFA (unionWith combine incoming outgoing)
+fromList :: (Ord s, Ord t) => [(s, Token t, s)] -> [s] -> s -> NFA s t
+fromList edges accept k = NFA table' start'
   where
+    table' = unionWith combine incoming outgoing
+    start' = fromMaybe Stuck (lookup k table')
     combine (State s b m) (State _ _ n) = State s b (unionWith union m n)
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdges edges)
     fromAccept s        = (s, State s True M.empty)
     fromEdges (a, t, b) = (a, State a (a `elem` accept) (M.singleton t (S.singleton b)))
 
-toList :: NFA s t -> ([(s, Token t, s)], [s])
-toList m = (edges =<< states, accept states)
+toList :: NFA s t -> ([(s, Token t, s)], [s], s)
+toList m = (edges =<< states, accept states, start')
   where
-    states              = elems (getM m)
+    State start' _ _    = start m
+    states              = elems (table m)
     edges (State a _ t) = brand a =<< M.toList t
     brand a (t, bs)     = map (\b -> (a, t, b)) (S.toList bs)
     accept xs           = [ a | State a b _ <- xs, b ]
@@ -55,7 +59,7 @@ read _ Stuck _          = empty
 read m (State _ _ ts) t = case lookup t ts of
   Nothing -> empty
   Just ss -> fold f empty ss
-  where f s r = maybe r (`insert` r) (lookup s (getM m))
+  where f s r = maybe r (`insert` r) (lookup s (table m))
 
 -- TODO: Detect loops by passing original start state to recursive calls
 free :: (Ord s, Ord t) => NFA s t -> State s t -> Set (State s t)
@@ -65,19 +69,19 @@ free m s = s `insert` fold union ss (S.map (free m) ss)
 step :: (Ord s, Ord t) => NFA s t -> State s t -> t -> Set (State s t)
 step m s t = fold (union . free m) empty (read m s (Token t))
 
-eval :: (Ord s, Ord t) => NFA s t -> s -> [t] -> Bool
-eval m i = any accept . S.toList . foldl' step' start
+eval :: (Ord s, Ord t) => NFA s t -> [t] -> Bool
+eval m = any accept . S.toList . foldl' step' (free m (start m))
   where
-    start      = free m (fromMaybe Stuck (lookup i (getM m)))
     step' ss t = fold (\s -> union (step m s t)) empty ss
     accept Stuck         = False
     accept (State _ x _) = x
 
-toDFA :: forall s t. (Ord s, Ord t) => NFA s t -> s -> D.DFA (Set s) t
-toDFA m i = uncurry D.fromList (loop empty [flatten start])
+toDFA :: forall s t. (Ord s, Ord t) => NFA s t -> D.DFA (Set s) t
+toDFA m = let (ts, as) = loop empty [flatten start']
+           in D.fromList ts as (label start')
   where
-    start   = free m (state i)
-    state s = fromMaybe (dummy s) (lookup s (getM m))
+    start'  = free m (start m)
+    state s = fromMaybe (dummy s) (lookup s (table m))
     dummy s = State s False M.empty
     label   = S.map (\(State s _ _) -> s)
 
