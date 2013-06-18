@@ -74,26 +74,31 @@ eval m i = any accept . S.toList . foldl' step' start
     accept (State _ x _) = x
 
 toDFA :: forall s t. (Ord s, Ord t) => NFA s t -> s -> D.DFA (Set s) t
-toDFA m i = undefined --uncurry D.fromList (loop S.empty start)
+toDFA m i = uncurry D.fromList (loop empty [flatten start])
   where
     start   = free m (state i)
     state s = fromMaybe (dummy s) (lookup s (getM m))
     dummy s = State s False M.empty
     label   = S.map (\(State s _ _) -> s)
 
-    -- TODO
     loop :: Set (Set s) -> [State (Set s) t] -> ([(Set s, t, Set s)], [Set s])
     loop = loop' ([], [])
       where
-        loop' acc done [] = acc
-        loop' acc done (s@(State a b t):xs)
-          | a `member` done = loop' acc done xs
-          | otherwise       = tuple s
+        loop' acc _    []   = acc
+        loop' (ts, as) done (s@(State a _ _):xs)
+          | a `member` done = loop' (ts, as) done xs
+          | otherwise       = let (ts', as') = tuple s
+                                  ts''  = ts' ++ ts
+                                  as''  = as' ++ as
+                                  done' = a `insert` done
+                                  xs'   = map (\(_, _, b) -> flatten (S.map state b)) ts'
+                                  xs''  = xs ++ xs'
+                               in loop' (ts'', as'') done' xs''
 
     tuple :: State (Set s) t -> ([(Set s, t, Set s)], [Set s])
     tuple (State s b t) = (trans, accept)
       where
-        trans  = map (\(Token t', b) -> (s, t', join b)) (M.toList t)
+        trans  = map (\(Token t', s') -> (s, t', join s')) (M.toList t)
         accept = [ s | b ]
         join   = S.unions . S.toList
 
