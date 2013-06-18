@@ -122,10 +122,12 @@ invertDFA m = fromList (ss' ++ ts') as' s'
     max' = max <$> foldr (max . Just . (\(a, _, _) -> a)) Nothing
                <*> foldr (max . Just . (\(_, _, b) -> b)) Nothing
 
+-- Brzozowski's algorithm
 minimizeDFA :: (Bounded s, Enum s, Ord s, Ord t) => D.DFA s t -> D.DFA Int t
 minimizeDFA = D.renumberDFA . toDFA . invertDFA .
               D.renumberDFA . toDFA . invertDFA
 
+-- Rabin–Scott powerset construction
 toDFA :: (Ord s, Ord t) => NFA s t -> D.DFA (Set s) t
 toDFA m = let (ts, as) = loop empty [flatten start']
            in D.fromList ts as (label start')
