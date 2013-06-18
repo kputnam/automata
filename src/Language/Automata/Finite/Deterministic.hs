@@ -3,7 +3,7 @@ module Language.Automata.Finite.Deterministic
   , fromList
   , toList
   , eval
-  , renumberDFA
+  , relabel
   ) where
 
 import Prelude hiding (lookup)
@@ -16,9 +16,9 @@ import qualified Data.Map as M
 import Control.Arrow (first, second)
 import Control.Monad.State (gets, modify, evalState)
 
-data State s t
+data State a t
   = Stuck
-  | State s Bool (Map t s)
+  | State a Bool (Map t a)
   deriving (Eq, Show, Read)
 
 data DFA s t
@@ -26,43 +26,61 @@ data DFA s t
         , start :: State s t }
   deriving (Eq, Show, Read)
 
-fromList :: (Ord s, Ord t) => [(s, t, s)] -> [s] -> s -> DFA s t
+-- First argument is a list of tuples (from, token, to) which specifies
+-- when the machine is at state `from` and reads `token`, the resulting
+-- state is `to`. Because this machine is deterministic, ... TODO
+--
+-- The second argument is a list of accept states. If the machine halts
+-- on one of these states, the input is "accepted" and eval will return
+-- True.
+--
+-- The last argument is a single start state.
+--
+fromList :: (Ord a, Ord t) => [(a, t, a)] -> [a] -> a -> DFA a t
 fromList edges accept k = DFA table' start'
   where
     table' = unionWith combine incoming outgoing
     start' = fromMaybe (State k (k `elem` accept) empty) (lookup k table')
 
-    combine (State s b m) (State _ _ n) = State s b (m `union` n)
+    combine (State a x m) (State _ _ n) = State a x (m `union` n)
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdges edges)
 
     fromAccept s        = (s, State s True empty)
     fromEdges (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
 
-toList :: DFA s t -> ([(s, t, s)], [s], s)
+-- Produce a representation of the given DFA as a list of edges, accept
+-- states, and the start state
+--
+toList :: DFA a t -> ([(a, t, a)], [a], a)
 toList m = (edges =<< states, accept states, start')
   where
     State start' _ _    = start m
     states              = elems (table m)
     edges (State a _ t) = map (brand a) (M.toList t)
     brand a (t, b)      = (a, t, b)
-    accept xs           = [ a | State a b _ <- xs, b ]
+    accept as           = [ a | State a x _ <- as, x ]
 
-step :: (Ord s, Ord t) => DFA s t -> State s t -> t -> State s t
+step :: (Ord a, Ord t) => DFA a t -> State a t -> t -> State a t
 step _ Stuck _          = Stuck
 step m (State _ _ ts) t = case lookup t ts of
   Nothing -> Stuck
   Just s  -> fromMaybe Stuck (lookup s (table m))
 
-eval :: (Ord s, Ord t) => DFA s t -> [t] -> Bool
+-- Run the simulation, producing True if the machine accepted the input
+-- or False otherwise.
+--
+eval :: (Ord a, Ord t) => DFA a t -> [t] -> Bool
 eval m = accept . foldl' (step m) (start m)
   where
     accept Stuck         = False
     accept (State _ x _) = x
 
-renumberDFA :: (Ord s, Ord t) => DFA s t -> DFA Int t
-renumberDFA m
-  = let (ts', as', ss') = evalState rebuild (0, M.empty)
+-- Replace each distinct state label (of any type 'a') with a distinct label
+-- of type 'b'. Type 'b' can be any for which minBound and succ are defined.
+relabel :: (Ord a, Ord t, Ord b, Bounded b, Enum b) => DFA a t -> DFA b t
+relabel m
+  = let (ts', as', ss') = evalState rebuild (minBound, M.empty)
      in fromList ts' as' ss'
   where
     rebuild = do
@@ -74,7 +92,7 @@ renumberDFA m
 
     fresh = do
       n <- gets fst
-      modify (first (+1))
+      modify (first succ)
       return n
 
     store s = do
