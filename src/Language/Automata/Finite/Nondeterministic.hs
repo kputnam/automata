@@ -49,10 +49,10 @@ fromList edges accept k = NFA table' start'
 
     combine (State a x m) (State _ _ n) = State a x (unionWith union m n)
     incoming = M.fromList (map fromAccept accept)
-    outgoing = fromListWith combine (map fromEdges edges)
+    outgoing = fromListWith combine (map fromEdge edges)
 
-    fromAccept a        = (a, State a True M.empty)
-    fromEdges (a, t, b) = (a, State a (a `elem` accept) (M.singleton t (S.singleton b)))
+    fromAccept a       = (a, State a True M.empty)
+    fromEdge (a, t, b) = (a, State a (a `elem` accept) (M.singleton t (S.singleton b)))
 
 -- Produce a representation of the given NFA as a list of edges, accept
 -- states, and the start state

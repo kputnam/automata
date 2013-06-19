@@ -44,10 +44,10 @@ fromList edges accept k = DFA table' start'
 
     combine (State a x m) (State _ _ n) = State a x (m `union` n)
     incoming = M.fromList (map fromAccept accept)
-    outgoing = fromListWith combine (map fromEdges edges)
+    outgoing = fromListWith combine (map fromEdge edges)
 
-    fromAccept s        = (s, State s True empty)
-    fromEdges (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
+    fromAccept s       = (s, State s True empty)
+    fromEdge (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
 
 -- Produce a representation of the given DFA as a list of edges, accept
 -- states, and the start state
