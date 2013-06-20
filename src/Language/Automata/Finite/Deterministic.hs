@@ -2,19 +2,23 @@ module Language.Automata.Finite.Deterministic
   ( DFA
   , fromList
   , toList
+  , toGraph
   , member
   , elems
   , union
-  , intersect
+  , difference
+  , intersection
   , concat
   , complement
   , kleene
+  , isSubsetOf
   , relabel
   ) where
 
 import Prelude hiding (lookup, concat)
 import Data.Maybe (fromMaybe)
 import Data.List (foldl')
+import Data.Graph.Inductive (Gr, mkGraph)
 import Data.Map (Map, fromListWith, singleton,
                  lookup, empty, unionWith)
 import qualified Data.Map as M
@@ -67,6 +71,15 @@ toList m = (edges =<< states, accept states, start')
     brand a (t, b)      = (a, t, b)
     accept as           = [ a | State a x _ <- as, x ]
 
+toGraph :: Ord a => DFA a t -> Gr a t
+toGraph m = mkGraph states (edges =<< M.toList (table m))
+  where
+    states = zip [0..] (M.keys (table m))
+    table' = M.fromList (map (\(n, a) -> (a, n)) states)
+    node a = fromMaybe 0 (lookup a table')
+    edges (a, State _ _ ts) = convert (node a) (M.toList ts)
+    convert a = map (\(t, b) -> (a, node b, t))
+
 step :: (Ord a, Ord t) => DFA a t -> State a t -> t -> State a t
 step _ Stuck _          = Stuck
 step m (State _ _ ts) t = case lookup t ts of
@@ -90,8 +103,11 @@ elems = undefined
 union :: DFA a t -> DFA a t -> DFA a t
 union = undefined
 
-intersect :: DFA a t -> DFA a t -> DFA a t
-intersect = undefined
+difference :: DFA a t -> DFA a t -> DFA a t
+difference = undefined
+
+intersection :: DFA a t -> DFA a t -> DFA a t
+intersection = undefined
 
 concat :: DFA a t -> DFA a t -> DFA a t
 concat = undefined
@@ -101,6 +117,9 @@ complement = undefined
 
 kleene :: DFA a t -> DFA a t
 kleene = undefined
+
+isSubsetOf :: DFA a t -> DFA a t -> DFA a t
+isSubsetOf = undefined
 
 -- Replace each distinct state label (of any type 'a') with a distinct label
 -- of type 'b'. Type 'b' can be any for which minBound and succ are defined.

@@ -7,10 +7,12 @@ module Language.Automata.Finite.Nondeterministic
   , member
   , elems
   , union
-  , intersect
+  , difference
+  , intersection
   , concat
   , complement
   , kleene
+  , isSubsetOf
   , reverse
   , reverseDFA
   , minimizeDFA
@@ -175,8 +177,11 @@ elems = undefined
 union :: NFA a t -> NFA a t -> NFA a t
 union = undefined
 
-intersect :: NFA a t -> NFA a t -> NFA a t
-intersect = undefined
+difference :: NFA a t -> NFA a t -> NFA a t
+difference = undefined
+
+intersection :: NFA a t -> NFA a t -> NFA a t
+intersection = undefined
 
 concat :: NFA a t -> NFA a t -> NFA a t
 concat = undefined
@@ -186,6 +191,9 @@ complement = undefined
 
 kleene :: NFA a t -> NFA a t
 kleene = undefined
+
+isSubsetOf :: NFA a t -> NFA a t -> NFA a t
+isSubsetOf = undefined
 
 reverse :: NFA a t -> NFA a t
 reverse = undefined

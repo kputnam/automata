@@ -1,6 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module Language.Grammar.Regular where
+module Language.Grammar.Regular
+  ( Regexp(..)
+  , toNFA
+  , fromNFA
+  ) where
 
 import Data.Monoid ((<>))
 import Control.Monad.State (evalState, get, modify)
@@ -88,3 +92,6 @@ instance Literal t => Show (Regexp t) where
 
       paren :: Literal t => Int -> Regexp t -> String
       paren p e = "(" <> walk p e <> ")"
+
+fromNFA :: (Enum a, Ord a, Ord t) => N.NFA a t -> Regexp t
+fromNFA = undefined
