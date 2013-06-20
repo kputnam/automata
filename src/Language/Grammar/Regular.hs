@@ -15,40 +15,39 @@ data Regexp a
 -- parse  :: Parser Regexp Char
 -- pretty :: Regexp Char -> String
 
-inc :: (Enum s, MonadState s m) => m s
-inc = do
-  n <- get
-  modify succ
-  return n
-
-toNFA :: (Enum s, Ord s, Ord a) => Regexp a -> s -> N.NFA s a
-toNFA r = uncurry N.build . evalState (build r)
+toNFA :: (Enum a, Ord a, Ord t) => Regexp t -> a -> N.NFA a t
+toNFA r k
+  = let (ts, as) = evalState (build r) k
+     in N.fromList ts as k
   where
+    -- inc :: (Enum a, MonadState a m) => m a
+    inc = do
+      n <- get
+      modify succ
+      return n
+
+    -- build :: (Enum a, MonadState a m) => Regexp t -> m ([(a, Maybe t, a)], [a])
     build Empty        = do
       n <- inc
       return ([], [n])
-
     build (Literal a)  = do
       n <- inc
       m <- inc
-      return ([(n, N.Token a, m)], [m])
-
+      return ([(n, Just a, m)], [m])
     build (Concat a b) = do
       (ta, aa) <- build a; sb <- get
       (tb, ab) <- build b
-      let ts = map (\x -> (x, N.Epsilon, sb)) aa
+      let ts = map (\x -> (x, Nothing, sb)) aa
       return (ta ++ tb ++ ts, ab)
-
     build (Choose a b) = do
       ss <- inc
       sa <- get; (ta, aa) <- build a
       sb <- get; (tb, ab) <- build b
-      let ts = [(ss, N.Epsilon, sa), (ss, N.Epsilon, sb)]
+      let ts = [(ss, Nothing, sa), (ss, Nothing, sb)]
       return (ta ++ tb ++ ts, aa ++ ab)
-
     build (Repeat a)   = do
       ss <- inc
       sa <- get; (ta, aa) <- build a
-      let ts = map (\x -> (x, N.Epsilon, sa)) aa
-          tt = (ss, N.Epsilon, sa)
+      let ts = map (\x -> (x, Nothing, sa)) aa
+          tt = (ss, Nothing, sa)
       return (tt:ta ++ ts, ss:aa)
