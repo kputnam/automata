@@ -1,6 +1,5 @@
 module Language.Automata.Finite.Nondeterministic
   ( NFA
-  , State(State)
   , fromList
   , fromDFA
   , toList
