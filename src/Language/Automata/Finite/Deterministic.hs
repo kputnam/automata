@@ -2,15 +2,21 @@ module Language.Automata.Finite.Deterministic
   ( DFA
   , fromList
   , toList
-  , eval
+  , member
+  , elems
+  , union
+  , intersect
+  , concat
+  , complement
+  , kleene
   , relabel
   ) where
 
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, concat)
 import Data.Maybe (fromMaybe)
 import Data.List (foldl')
-import Data.Map (Map, fromListWith, union, singleton,
-                 elems, lookup, empty, unionWith)
+import Data.Map (Map, fromListWith, singleton,
+                 lookup, empty, unionWith)
 import qualified Data.Map as M
 
 import Control.Arrow (first, second)
@@ -42,7 +48,7 @@ fromList edges accept k = DFA table' start'
     table' = unionWith combine incoming outgoing
     start' = fromMaybe (State k (k `elem` accept) empty) (lookup k table')
 
-    combine (State a x m) (State _ _ n) = State a x (m `union` n)
+    combine (State a x m) (State _ _ n) = State a x (m `M.union` n)
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdge edges)
 
@@ -56,7 +62,7 @@ toList :: DFA a t -> ([(a, t, a)], [a], a)
 toList m = (edges =<< states, accept states, start')
   where
     State start' _ _    = start m
-    states              = elems (table m)
+    states              = M.elems (table m)
     edges (State a _ t) = map (brand a) (M.toList t)
     brand a (t, b)      = (a, t, b)
     accept as           = [ a | State a x _ <- as, x ]
@@ -70,11 +76,31 @@ step m (State _ _ ts) t = case lookup t ts of
 -- Run the simulation, producing True if the machine accepted the input
 -- or False otherwise.
 --
-eval :: (Ord a, Ord t) => DFA a t -> [t] -> Bool
-eval m = accept . foldl' (step m) (start m)
+member :: (Ord a, Ord t) => [t] -> DFA a t -> Bool
+member ts m = accept (eval ts) 
   where
+    eval = foldl' (step m) (start m)
+
     accept Stuck         = False
     accept (State _ x _) = x
+
+elems :: (Ord a, Ord t) => DFA a t -> [t]
+elems = undefined
+
+union :: DFA a t -> DFA a t -> DFA a t
+union = undefined
+
+intersect :: DFA a t -> DFA a t -> DFA a t
+intersect = undefined
+
+concat :: DFA a t -> DFA a t -> DFA a t
+concat = undefined
+
+complement :: DFA a t -> DFA a t
+complement = undefined
+
+kleene :: DFA a t -> DFA a t
+kleene = undefined
 
 -- Replace each distinct state label (of any type 'a') with a distinct label
 -- of type 'b'. Type 'b' can be any for which minBound and succ are defined.
