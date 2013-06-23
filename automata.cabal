@@ -2,7 +2,6 @@ name:           automata
 version:        0.0.0
 cabal-version:  >= 1.14
 license:        BSD3
-license-file:   LICENSE.md
 author:         Kyle Putnam <putnam.kyle@gmail.com>
 maintainer:     Kyle Putnam <putnam.kyle@gmail.com>
 homepage:       https://github.com/kputnam/automata
@@ -23,15 +22,15 @@ library
     base >= 3 && <5,
     text >= 0.11.2.3,
     pretty >= 1.1.1.0,
-    containers >= 0.4.2.0
-    -- attoparsec >= 0.10.2.0
+    containers >= 0.4.2.0,
+    attoparsec >= 0.10.2.0
 
   exposed-modules:
     Language.Automata.Finite.Deterministic
     Language.Automata.Finite.Nondeterministic
-    Language.Automata.Finite.RegularExpression
     Language.Automata.Pushdown.Deterministic
     Language.Automata.Pushdown.Nondeterministic
+    Language.Grammar.Regular
 
 source-repository head
   type:     git

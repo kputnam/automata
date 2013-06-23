@@ -138,13 +138,12 @@ read m (State _ _ ts) t = case lookup t ts of
 -- all free transitions, recursively, from the given state.
 --
 free :: (Ord a, Ord t) => NFA a t -> State a t -> Set (State a t)
-free m = loop empty
+free m s = s `insert` loop empty s
   where
-    next q       = read m q Nothing
     loop acc q
       | q `S.member` acc = acc
       | otherwise        = let acc' = q `insert` acc
-                               qs   = next q
+                               qs   = read m q Nothing
                             in fold S.union qs (S.map (loop acc') qs)
 
 -- Produce a set of outcome states after reading the given token (which
