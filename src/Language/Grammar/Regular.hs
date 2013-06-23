@@ -1,12 +1,18 @@
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Language.Grammar.Regular
   ( Regexp(..)
   , toNFA
   , fromNFA
+  , parse
   ) where
 
+import Data.Text (pack)
+import Data.List (foldl')
+import Data.Char (chr)
 import Data.Monoid ((<>))
+import Data.Attoparsec.Text hiding (parse)
+import Control.Applicative
 import Control.Monad.State (evalState, get, modify)
 import qualified Language.Automata.Finite.Nondeterministic as N
 
@@ -19,6 +25,9 @@ data Regexp t
   deriving (Eq, Read)
 
 -- parse  :: Parser Regexp Char
+
+todo :: a
+todo = undefined
 
 toNFA :: (Enum a, Ord a, Ord t) => Regexp t -> a -> N.NFA a t
 toNFA r k
@@ -57,17 +66,50 @@ toNFA r k
           tt = (ss, Nothing, sa)
       return (tt:ta ++ ts, ss:aa)
 
-class Literal t where
-  gap :: Regexp t -> String
-  lit :: t -> String
+-- POSIX Enhanced Regular Expression syntax
+parse :: String -> Either String (Regexp Char)
+parse = parseOnly (expr <* endOfInput) . pack
+  where
+    expr   = branch >>= (\b -> (Choose b <$> (char '|' *> expr)) <|> pure b)
+    branch = piece >>= (\p -> (Concat p <$> branch) <|> pure p)
+    piece  = atom >>= (\a -> (char '*' *> pure (Repeat a))
+                       <|> (char '+' *> pure (Concat a (Repeat a)))
+                       <|> (char '?' *> pure (Choose a Empty))
+                       <|> (bound    *> todo)
+                       <|> pure a)
+    bound :: Parser (Int, Maybe Int)
+    bound = brace ((,) <$> decimal <*> optional decimal)
+    atom  = paren expr
+        <|> paren (pure Empty)
+        <|> brack klass
+        <|> char '.'  *> todo
+        <|> char '^'  *> todo
+        <|> char '$'  *> todo
+        <|> char '\\' *> todo -- ^.[$()|*+?{\
+        <|> char '\\' *> todo -- .dDsSwWaefnrt
+        <|> string "\\x" *> todo -- \xFF, \x{F}, \x{FF}, ...\x{FFFFFFFF}
+        <|> char '\\' *> (Literal <$> anyChar)
+        <|> Literal <$> satisfy (notInClass ")|+?*")
+    klass = string "[:alnum:]"  *> oneOf 'a' (['b'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'])
+        <|> string "[:alpha:]"  *> oneOf 'a' (['b'..'z'] ++ ['A'..'Z'])
+        <|> string "[:blank:]"  *> oneOf ' ' "\t"
+        <|> string "[:cntrl:]"  *> oneOf (chr 0x7f) [chr 0x00 .. chr 0x1f]
+        <|> string "[:digit:]"  *> oneOf '0' ['1'..'9']
+        <|> string "[:graph:]"  *> oneOf (chr 0x21) [chr 0x22 .. chr 0x7e]
+        <|> string "[:lower:]"  *> oneOf 'a' ['b'..'z']
+        <|> string "[:print:]"  *> oneOf (chr 0x20) [chr 0x20 .. chr 0x7e]
+        <|> string "[:punct:]"  *> oneOf ']' "][!\"#$%&'()*+,./:;<=>?@\\^_`{|}~-"
+        <|> string "[:upper:]"  *> oneOf 'A' ['B'..'Z']
+        <|> string "[:xdigit:]" *> oneOf 'a' (['b'..'f'] ++ ['A'..'F'] ++ ['0'..'9'])
+    oneOf = (pure .) . foldl' (flip (Choose . Literal)) . Literal
 
-instance Literal Int where
-  gap _ = " "
-  lit   = show
+    paren = wrapped '(' ')'
+    brace = wrapped '{' '}'
+    brack = wrapped '[' ']'
+    wrapped a b p = (char a *> p) <* char b
 
-instance Literal Char where
-  gap _ = ""
-  lit c = [c]
+fromNFA :: (Enum a, Ord a, Ord t) => N.NFA a t -> Regexp t
+fromNFA = todo
 
 instance Literal t => Show (Regexp t) where
   show = walk 0
@@ -93,5 +135,14 @@ instance Literal t => Show (Regexp t) where
       paren :: Literal t => Int -> Regexp t -> String
       paren p e = "(" <> walk p e <> ")"
 
-fromNFA :: (Enum a, Ord a, Ord t) => N.NFA a t -> Regexp t
-fromNFA = undefined
+class Literal t where
+  gap :: Regexp t -> String
+  lit :: t -> String
+
+instance Literal Int where
+  gap _ = " "
+  lit   = show
+
+instance Literal Char where
+  gap _ = ""
+  lit c = [c]
