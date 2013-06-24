@@ -19,6 +19,7 @@ module Language.Automata.Pushdown.Deterministic
 import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map, empty, lookup, union, unionWith, singleton, fromListWith)
+import Data.List (foldl')
 import qualified Data.Map as M
 import qualified Language.Automata.Finite.Deterministic    as D
 import qualified Language.Automata.Finite.Nondeterministic as N
@@ -34,36 +35,71 @@ data DPDA a t s
          , stack :: s }
   deriving (Eq, Show, Read)
 
-fromList :: (Ord a, Ord s, Ord t) => [(a, Maybe t, s, a, [s])] -> [a] -> a -> s -> DPDA a t s
+fromList :: (Ord a, Ord s, Ord t)
+         => [(a, Maybe t, s, a, [s])] -> [a] -> a -> s -> DPDA a t s
 fromList edges accept k = DPDA table' start'
   where
     table' = unionWith combine incoming outgoing
     start' = fromMaybe (State k (k `elem` accept) empty) (lookup k table')
 
     combine (State a x m) (State _ _ n) = State a x (m `union` n)
+    combine _ _ = error "impossible"
+
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdge edges)
 
     fromAccept a = (a, State a True empty)
     fromEdge (a, t, s, b, ss) = (a, State a (a `elem` accept) (singleton (t,s) (b,ss)))
 
-fromDFA :: D.DFA a t -> DPDA a t s
-fromDFA = undefined
+fromDFA :: (Ord a, Ord t) => D.DFA a t -> DPDA a t Char
+fromDFA m = fromList ts' as s '$'
+  where
+    (ts, as, s) = D.toList m
+    ts' = map (\(a, t, b) -> (a, Just t, '$', b, "$")) ts
 
-fromNFA :: N.NFA a t -> DPDA a t s
-fromNFA = undefined
+fromNFA :: (Ord a, Ord t) => N.NFA a t -> DPDA Int t Char
+fromNFA = fromDFA . D.relabel . N.toDFA
 
 toList :: DPDA a t s -> ([(a, Maybe t, s, a, [s])], [a], a, s)
 toList m = (edges =<< states, accept states, start', stack m)
   where
-    State start' _ _          = start m
-    states                    = M.elems (table m)
-    edges (State a _ t)       = map (brand a) (M.toList t)
+    State start' _ _ = start m
+    states           = M.elems (table m)
+
+    edges (State a _ t) = map (brand a) (M.toList t)
+    edges _             = error "impossible"
+
     brand a ((t, s), (b, ss)) = (a, t, s, b, ss)
     accept as                 = [ a | State a x _ <- as, x ]
 
+free :: (Ord a, Ord t, Ord s)
+     => DPDA a t s -> State a t s -> [s] -> (State a t s, [s])
+free _ Stuck ss               = (Stuck, ss)
+free _ s []                   = (s, [])
+free m s@(State _ _ ts) (h:t) = case lookup (Nothing, h) ts of
+    Just (a, ss) -> case lookup a (table m) of
+      Just s'    -> (s', ss ++ t)
+      Nothing    -> (s, h:t)
+    Nothing      -> (s, h:t)
+
+step :: (Ord a, Ord t, Ord s)
+     => DPDA a t s -> State a t s -> [s] -> t -> (State a t s, [s])
+step _ Stuck ss _              = (Stuck, ss)
+step _ s [] _                  = (s, [])
+step m (State _ _ ts) (s:ss) t = case lookup (Just t, s) ts of
+    Just (a, rs) -> case lookup a (table m) of
+      Just s'    -> free m s' (rs ++ ss)
+      Nothing    -> (Stuck, s:ss)
+    Nothing      -> (Stuck, s:ss)
+
+eval :: (Ord a, Ord t, Ord s) => DPDA a t s -> [t] -> (State a t s, [s])
+eval m = foldl' (uncurry (step m)) (free m (start m) [stack m])
+
 member :: (Ord a, Ord t, Ord s) => [t] -> DPDA a t s -> Bool
-member = undefined
+member ts m = accept (fst (eval m ts))
+  where
+    accept Stuck         = False
+    accept (State _ x _) = x
 
 elems :: (Ord a, Ord t, Ord s) => DPDA a t s -> [t]
 elems = undefined
