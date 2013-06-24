@@ -22,7 +22,7 @@ data Regexp t
   | Concat (Regexp t) (Regexp t)
   | Choose (Regexp t) (Regexp t)
   | Repeat (Regexp t)
-  deriving (Eq, Read)
+  deriving (Eq, Read, Show)
 
 -- parse  :: Parser Regexp Char
 
