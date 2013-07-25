@@ -10,6 +10,7 @@ module Language.Grammar.Regular
 import Data.Text (pack)
 import Data.List (foldl')
 import Data.Char (chr)
+import Data.Maybe (fromJust)
 import Data.Monoid ((<>))
 import Data.Attoparsec.Text hiding (parse)
 import Control.Applicative
@@ -22,12 +23,12 @@ data Regexp t
   | Concat (Regexp t) (Regexp t)
   | Choose (Regexp t) (Regexp t)
   | Repeat (Regexp t)
-  deriving (Eq, Read, Show)
+  deriving (Eq, Read)--, Show)
 
 -- parse  :: Parser Regexp Char
 
 todo :: a
-todo = undefined
+todo = error "todo"
 
 toNFA :: (Enum a, Ord a, Ord t) => Regexp t -> a -> N.NFA a t
 toNFA r k
@@ -85,11 +86,18 @@ parse = parseOnly (expr <* endOfInput) . pack
         <|> char '.'  *> todo
         <|> char '^'  *> todo
         <|> char '$'  *> todo
-        <|> char '\\' *> todo -- ^.[$()|*+?{\
-        <|> char '\\' *> todo -- .dDsSwWaefnrt
+        <|> char '\\' *> (Literal <$> satisfy (inClass "^.[$()|*+?{\\"))
+        <|> char '\\' *> (esc =<< satisfy (inClass "dswDSW"))
         <|> string "\\x" *> todo -- \xFF, \x{F}, \x{FF}, ...\x{FFFFFFFF}
         <|> char '\\' *> (Literal <$> anyChar)
         <|> Literal <$> satisfy (notInClass ")|+?*")
+    esc   = fromJust . flip lookup
+              [('d', oneOf '0' ['1'..'9'])
+              ,('s', oneOf ' ' "\t")
+              ,('w', oneOf '_' (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']))
+              ,('D', todo)
+              ,('S', todo)
+              ,('W', todo)]
     klass = string "[:alnum:]"  *> oneOf 'a' (['b'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'])
         <|> string "[:alpha:]"  *> oneOf 'a' (['b'..'z'] ++ ['A'..'Z'])
         <|> string "[:blank:]"  *> oneOf ' ' "\t"
@@ -118,12 +126,12 @@ instance Literal t => Show (Regexp t) where
       walk _ Empty  = ""
       walk _ (Literal t)
                     = lit t
-      walk p e@(Concat a b)
-        | p <= q    = walk q a <> gap e <> walk q b
-        | otherwise = paren q e
-        where q = 2
       walk p e@(Choose a b)
         | p <= q    = walk q a <> "|" <> walk q b
+        | otherwise = paren q e
+        where q = 1
+      walk p e@(Concat a b)
+        | p <= q    = walk q a <> gap e <> walk q b
         | otherwise = paren q e
         where q = 2
       walk p e@(Repeat a)
