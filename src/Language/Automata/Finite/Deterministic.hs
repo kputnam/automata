@@ -22,6 +22,7 @@ import Data.Graph.Inductive (Gr, mkGraph)
 import Data.Map (Map, fromListWith, singleton,
                  lookup, empty, unionWith)
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Control.Arrow (first, second)
 import Control.Monad.State (gets, modify, evalState)
@@ -29,11 +30,11 @@ import Control.Monad.State (gets, modify, evalState)
 data State a t
   = Stuck
   | State a Bool (Map t a)
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Ord)
 
-data DFA s t
-  = DFA { table :: Map s (State s t)
-        , start :: State s t }
+data DFA a t
+  = DFA { table :: Map a (State a t)
+        , start :: State a t }
   deriving (Eq, Show, Read)
 
 -- First argument is a list of tuples (from, token, to) which specifies
@@ -65,11 +66,11 @@ fromList edges accept k = DFA table' start'
 toList :: DFA a t -> ([(a, t, a)], [a], a)
 toList m = (edges =<< states, accept states, start')
   where
-    State start' _ _    = start m
-    states              = M.elems (table m)
-    edges (State a _ t) = map (brand a) (M.toList t)
-    brand a (t, b)      = (a, t, b)
-    accept as           = [ a | State a x _ <- as, x ]
+    State start' _ _     = start m
+    states               = M.elems (table m)
+    edges (State a _ ts) = map (brand a) (M.toList ts)
+    brand a (t, b)       = (a, t, b)
+    accept as            = [ a | State a x _ <- as, x ]
 
 toGraph :: Ord a => DFA a t -> Gr a t
 toGraph m = mkGraph states (edges =<< M.toList (table m))
@@ -80,25 +81,44 @@ toGraph m = mkGraph states (edges =<< M.toList (table m))
     edges (a, State _ _ ts) = convert (node a) (M.toList ts)
     convert a = map (\(t, b) -> (a, node b, t))
 
-step :: (Ord a, Ord t) => DFA a t -> State a t -> t -> State a t
-step _ Stuck _          = Stuck
-step m (State _ _ ts) t = case lookup t ts of
-  Nothing -> Stuck
-  Just s  -> fromMaybe Stuck (lookup s (table m))
-
 -- Run the simulation, producing True if the machine accepted the input
 -- or False otherwise.
 --
 member :: (Ord a, Ord t) => [t] -> DFA a t -> Bool
 member ts m = accept (eval ts) 
   where
-    eval = foldl' (step m) (start m)
+    eval = foldl' step (start m)
 
     accept Stuck         = False
     accept (State _ x _) = x
 
-elems :: (Ord a, Ord t) => DFA a t -> [t]
-elems = undefined
+    -- step :: (Ord a, Ord t) => State a t -> t -> State a t
+    step Stuck _          = Stuck
+    step (State _ _ tx) t = case lookup t tx of
+      Nothing -> Stuck
+      Just s  -> fromMaybe Stuck (lookup s (table m))
+
+elems :: (Ord a, Ord t) => DFA a t -> [[t]]
+elems m = walk (S.singleton ([], start m))
+  where
+    walk ss
+      | stuck ss  = []
+      | otherwise = accept ss ++ walk (S.fold step S.empty ss)
+
+    stuck = S.null . S.filter op
+      where
+        op (_, Stuck) = True
+        op _          = False
+
+    accept = S.fold op []
+      where
+        op (x, State _ True _) xs = reverse (x:xs)
+        op _                   xs = xs
+
+    step (_, Stuck)         ss = ss
+    step (xs, State _ _ ts) ss = M.foldWithKey op ss ts
+      where
+        op x n = S.insert (x:xs, fromMaybe Stuck (lookup n (table m)))
 
 union :: DFA a t -> DFA a t -> DFA a t
 union = undefined

@@ -106,7 +106,7 @@ parse = parseOnly (expr <* endOfInput) . pack
         <|> string "[:graph:]"  *> oneOf (chr 0x21) [chr 0x22 .. chr 0x7e]
         <|> string "[:lower:]"  *> oneOf 'a' ['b'..'z']
         <|> string "[:print:]"  *> oneOf (chr 0x20) [chr 0x20 .. chr 0x7e]
-        <|> string "[:punct:]"  *> oneOf ']' "][!\"#$%&'()*+,./:;<=>?@\\^_`{|}~-"
+        <|> string "[:punct:]"  *> oneOf ']' "[!\"#$%&'()*+,./:;<=>?@\\^_`{|}~-"
         <|> string "[:upper:]"  *> oneOf 'A' ['B'..'Z']
         <|> string "[:xdigit:]" *> oneOf 'a' (['b'..'f'] ++ ['A'..'F'] ++ ['0'..'9'])
     oneOf = (pure .) . foldl' (flip (Choose . Literal)) . Literal
