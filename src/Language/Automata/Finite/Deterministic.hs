@@ -98,6 +98,12 @@ member ts m = accept (eval ts)
       Nothing -> Stuck
       Just s  -> fromMaybe Stuck (lookup s (table m))
 
+-- Enumerate the valid strings accepted by the given DFA. The results
+-- are produced from a breadth-first traversal of the state transition
+-- graph.
+--
+-- Note: strings in the output may be repeated.
+--
 elems :: (Ord a, Ord t) => DFA a t -> [[t]]
 elems m = walk (S.singleton ([], start m))
   where
@@ -107,8 +113,8 @@ elems m = walk (S.singleton ([], start m))
 
     stuck = S.null . S.filter op
       where
-        op (_, Stuck) = True
-        op _          = False
+        op (_, Stuck) = False
+        op _          = True
 
     accept = S.fold op []
       where
