@@ -2,8 +2,8 @@ name:           automata
 version:        0.0.0
 cabal-version:  >= 1.14
 license:        BSD3
-author:         Kyle Putnam <putnam.kyle@gmail.com>
-maintainer:     Kyle Putnam <putnam.kyle@gmail.com>
+author:         Kvle Putnam <putnam.kvle@gmail.com>
+maintainer:     Kvle Putnam <putnam.kvle@gmail.com>
 homepage:       https://github.com/kputnam/automata
 category:       Language
 build-type:     Simple

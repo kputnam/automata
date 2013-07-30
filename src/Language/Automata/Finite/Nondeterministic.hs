@@ -30,22 +30,9 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Monad.State (gets, modify, evalState, ap)
 import qualified Data.Map as M
 import qualified Data.Set as S
+
+import Language.Automata.Mode
 import qualified Language.Automata.Finite.Deterministic as D
-
-data Mode
-  = Accept
-  | Reject
-  deriving (Eq, Show, Read, Ord)
-
-instance Monoid Mode where
-  mempty           = Reject
-  mappend Accept _ = Accept
-  mappend _ Accept = Accept
-  mappend _ _      = Reject
-
-modeIf :: Bool -> Mode
-modeIf True  = Accept
-modeIf False = Reject
 
 data State n t
   = State n Mode (Map (Maybe t) (Set n))
@@ -72,11 +59,10 @@ fromList edges accept k = NFA table' start'
     table' = unionWith combine incoming outgoing
     start' = fromMaybe (State k (modeIf $ k `elem` accept) mempty) (lookup k table')
 
-    combine (State n x m) (State n' x' m')
+    combine (State n x tx) (State n' x' tx')
       | n == n' &&
-        x == x'   = State n x (unionWith S.union m m')
+        x == x'   = State n x (unionWith S.union tx tx')
       | otherwise = error "impossible"
-    combine _ _   = error "impossible"
 
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdge edges)

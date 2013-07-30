@@ -19,22 +19,14 @@ import Prelude hiding (lookup, concat)
 import Data.Maybe (fromMaybe)
 import Data.List (foldl')
 import Data.Graph.Inductive (Gr, mkGraph)
-import Data.Map (Map, fromListWith, singleton,
-                 lookup, empty, unionWith)
+import Data.Map (Map, fromListWith, singleton, lookup, empty, unionWith)
 import qualified Data.Map as M
 import qualified Data.Set as S
 
 import Control.Arrow (first, second)
 import Control.Monad.State (gets, modify, evalState)
 
-data Mode
-  = Accept
-  | Reject
-  deriving (Eq, Show, Read, Ord)
-
-modeIf :: Bool -> Mode
-modeIf True  = Accept
-modeIf False = Reject
+import Language.Automata.Mode
 
 data State n t
   = Stuck
