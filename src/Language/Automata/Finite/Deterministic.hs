@@ -27,14 +27,23 @@ import qualified Data.Set as S
 import Control.Arrow (first, second)
 import Control.Monad.State (gets, modify, evalState)
 
-data State a t
-  = Stuck
-  | State a Bool (Map t a)
+data Mode
+  = Accept
+  | Reject
   deriving (Eq, Show, Read, Ord)
 
-data DFA a t
-  = DFA { table :: Map a (State a t)
-        , start :: State a t }
+modeIf :: Bool -> Mode
+modeIf True  = Accept
+modeIf False = Reject
+
+data State n t
+  = Stuck
+  | State n Mode (Map t n)
+  deriving (Eq, Show, Read, Ord)
+
+data DFA n t
+  = DFA { table :: Map n (State n t)
+        , start :: State n t }
   deriving (Eq, Show, Read)
 
 -- First argument is a list of tuples (from, token, to) which specifies
@@ -47,56 +56,67 @@ data DFA a t
 --
 -- The last argument is a single start state.
 --
-fromList :: (Ord a, Ord t) => [(a, t, a)] -> [a] -> a -> DFA a t
-fromList edges accept k = DFA table' start'
+fromList :: (Ord n, Ord t) => [(n, t, n)] -> [n] -> n -> DFA n t
+fromList edges accept s = DFA table' start'
   where
     table' = unionWith combine incoming outgoing
-    start' = fromMaybe (State k (k `elem` accept) empty) (lookup k table')
+    start' = fromMaybe (State s (modeIf $ s `elem` accept) empty) (lookup s table')
 
-    combine (State a x m) (State _ _ n) = State a x (m `M.union` n)
+    combine (State n x tx) (State n' x' tx')
+      | n == n' &&
+        x == x'   = State n x (tx `M.union` tx')
+      | otherwise = error "impossible"
+    combine _ _   = error "impossible"
+
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdge edges)
 
-    fromAccept s       = (s, State s True empty)
-    fromEdge (a, t, b) = (a, State a (a `elem` accept) (singleton t b))
+    fromAccept n        = (n, State n Accept empty)
+    fromEdge (n, t, tx) = (n, State n (modeIf $ n `elem` accept) (singleton t tx))
 
 -- Produce a representation of the given DFA as a list of edges, accept
 -- states, and the start state
 --
-toList :: DFA a t -> ([(a, t, a)], [a], a)
+toList :: DFA n t -> ([(n, t, n)], [n], n)
 toList m = (edges =<< states, accept states, start')
   where
     State start' _ _     = start m
     states               = M.elems (table m)
-    edges (State a _ ts) = map (brand a) (M.toList ts)
-    brand a (t, b)       = (a, t, b)
-    accept as            = [ a | State a x _ <- as, x ]
+
+    edges (State a _ tx) = map (brand a) (M.toList tx)
+    edges _              = [] -- not possible
+
+    brand n (t, n')      = (n, t, n')
+    accept ss            = [ n | State n Accept _ <- ss ]
 
 toGraph :: Ord a => DFA a t -> Gr a t
 toGraph m = mkGraph states (edges =<< M.toList (table m))
   where
     states = zip [0..] (M.keys (table m))
-    table' = M.fromList (map (\(n, a) -> (a, n)) states)
-    node a = fromMaybe 0 (lookup a table')
-    edges (a, State _ _ ts) = convert (node a) (M.toList ts)
-    convert a = map (\(t, b) -> (a, node b, t))
+    table' = M.fromList (map (\(k, n) -> (n, k)) states)
+    node n = fromMaybe 0 (lookup n table')
+
+    edges (n, State _ _ tx) = convert (node n) (M.toList tx)
+    edges _                 = [] -- not possible
+
+    convert n = map (\(t, n') -> (n, node n', t))
 
 -- Run the simulation, producing True if the machine accepted the input
 -- or False otherwise.
 --
-member :: (Ord a, Ord t) => [t] -> DFA a t -> Bool
+member :: (Ord n, Ord t) => [t] -> DFA n t -> Bool
 member ts m = accept (eval ts) 
   where
     eval = foldl' step (start m)
 
-    accept Stuck         = False
-    accept (State _ x _) = x
+    accept (State _ Accept _) = True
+    accept _                  = False
 
     -- step :: (Ord a, Ord t) => State a t -> t -> State a t
     step Stuck _          = Stuck
     step (State _ _ tx) t = case lookup t tx of
       Nothing -> Stuck
-      Just s  -> fromMaybe Stuck (lookup s (table m))
+      Just n  -> fromMaybe Stuck (lookup n (table m))
 
 -- Enumerate the valid strings accepted by the given DFA. The results
 -- are produced from a breadth-first traversal of the state transition
@@ -104,7 +124,7 @@ member ts m = accept (eval ts)
 --
 -- Note: strings in the output may be repeated.
 --
-elems :: (Ord a, Ord t) => DFA a t -> [[t]]
+elems :: (Ord n, Ord t) => DFA n t -> [[t]]
 elems m = walk (S.singleton ([], start m))
   where
     walk ss
@@ -118,13 +138,13 @@ elems m = walk (S.singleton ([], start m))
 
     accept = S.fold op []
       where
-        op (x, State _ True _) xs = reverse (x:xs)
-        op _                   xs = xs
+        op (t, State _ Accept _) ts = reverse (t:ts)
+        op _                     ts = ts
 
     step (_, Stuck)         ss = ss
-    step (xs, State _ _ ts) ss = M.foldWithKey op ss ts
+    step (ts, State _ _ tx) ss = M.foldWithKey op ss tx
       where
-        op x n = S.insert (x:xs, fromMaybe Stuck (lookup n (table m)))
+        op t n = S.insert (t:ts, fromMaybe Stuck (lookup n (table m)))
 
 union :: DFA a t -> DFA a t -> DFA a t
 union = undefined
@@ -149,33 +169,36 @@ isSubsetOf = undefined
 
 -- Replace each distinct state label (of any type 'a') with a distinct label
 -- of type 'b'. Type 'b' can be any for which minBound and succ are defined.
-relabel :: (Ord a, Ord t, Ord b, Bounded b, Enum b) => DFA a t -> DFA b t
-relabel m
-  = let (ts', as', ss') = evalState rebuild (minBound, M.empty)
-     in fromList ts' as' ss'
+relabel :: (Ord n, Ord t, Ord m, Bounded m, Enum m) => DFA n t -> DFA m t
+relabel m = relabelWithMin m minBound
+
+relabelWithMin :: (Ord n, Ord t, Ord m, Enum m) => DFA n t -> m -> DFA m t
+relabelWithMin m s
+  = let (tx, as, ss) = evalState rebuild (s, M.empty)
+     in fromList tx as ss
   where
     rebuild = do
-      let (ts, as, ss) = toList m
-      ss' <- index ss
-      as' <- mapM index as
-      ts' <- mapM edges ts
-      return (ts', as', ss')
+      let (tx, as, ss) = toList m
+      ss' <- indexOf ss
+      as' <- mapM indexOf as
+      tx' <- mapM edges tx
+      return (tx', as', ss')
 
     fresh = do
       n <- gets fst
       modify (first succ)
       return n
 
-    store s = do
-      n <- fresh
-      modify (second (M.insert s n))
-      return n
+    store n = do
+      n' <- fresh
+      modify (second (M.insert n n'))
+      return n'
 
-    index s = do
-      k <- gets snd
-      maybe (store s) return (M.lookup s k)
+    indexOf n = do
+      tx <- gets snd
+      maybe (store n) return (M.lookup n tx)
 
     edges (a, t, b) = do
-      a' <- index a
-      b' <- index b
+      a' <- indexOf a
+      b' <- indexOf b
       return (a', t, b')

@@ -22,7 +22,8 @@ module Language.Automata.Finite.Nondeterministic
 import Prelude hiding (lookup, read, concat, reverse)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map, lookup, fromListWith, unionWith)
-import Data.Set (Set, empty, insert, fold)
+import Data.Monoid
+import Data.Set (Set, empty, insert)
 import Data.List (foldl')
 import Control.Arrow (first, second)
 import Control.Applicative ((<$>), (<*>))
@@ -31,13 +32,28 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Language.Automata.Finite.Deterministic as D
 
-data State a t
-  = State a Bool (Map (Maybe t) (Set a))
+data Mode
+  = Accept
+  | Reject
   deriving (Eq, Show, Read, Ord)
 
-data NFA a t
-  = NFA { table :: Map a (State a t)
-        , start :: State a t }
+instance Monoid Mode where
+  mempty           = Reject
+  mappend Accept _ = Accept
+  mappend _ Accept = Accept
+  mappend _ _      = Reject
+
+modeIf :: Bool -> Mode
+modeIf True  = Accept
+modeIf False = Reject
+
+data State n t
+  = State n Mode (Map (Maybe t) (Set n))
+  deriving (Eq, Show, Read, Ord)
+
+data NFA n t
+  = NFA { table :: Map n (State n t)
+        , start :: State n t }
   deriving (Eq, Show, Read)
 
 -- First argument is a list of tuples (from, token, to) which specifies
@@ -50,68 +66,73 @@ data NFA a t
 --
 -- The last argument is a single start state.
 --
-fromList :: (Ord a, Ord t) => [(a, Maybe t, a)] -> [a] -> a -> NFA a t
+fromList :: (Ord n, Ord t) => [(n, Maybe t, n)] -> [n] -> n -> NFA n t
 fromList edges accept k = NFA table' start'
   where
     table' = unionWith combine incoming outgoing
-    start' = fromMaybe (State k (k `elem` accept) M.empty) (lookup k table')
+    start' = fromMaybe (State k (modeIf $ k `elem` accept) mempty) (lookup k table')
 
-    combine (State a x m) (State _ _ n) = State a x (unionWith S.union m n)
+    combine (State n x m) (State n' x' m')
+      | n == n' &&
+        x == x'   = State n x (unionWith S.union m m')
+      | otherwise = error "impossible"
+    combine _ _   = error "impossible"
+
     incoming = M.fromList (map fromAccept accept)
     outgoing = fromListWith combine (map fromEdge edges)
 
-    fromAccept a       = (a, State a True M.empty)
-    fromEdge (a, t, b) = (a, State a (a `elem` accept) (M.singleton t (S.singleton b)))
+    fromAccept n        = (n, State n Accept mempty)
+    fromEdge (n, t, n') = (n, State n (modeIf $ n `elem` accept) (M.singleton t (S.singleton n')))
 
-fromDFA :: (Ord a, Ord t) => D.DFA a t -> NFA a t
+fromDFA :: (Ord n, Ord t) => D.DFA n t -> NFA n t
 fromDFA = undefined
 
 -- Produce a representation of the given NFA as a list of edges, accept
 -- states, and the start state
 --
-toList :: NFA a t -> ([(a, Maybe t, a)], [a], a)
+toList :: NFA n t -> ([(n, Maybe t, n)], [n], n)
 toList m = (edges =<< states, accept states, start')
   where
-    State start' _ _    = start m
-    states              = M.elems (table m)
-    edges (State a _ t) = brand a =<< M.toList t
-    brand a (t, bs)     = map (\b -> (a, t, b)) (S.toList bs)
-    accept as           = [ a | State a x _ <- as, x ]
+    State start' _ _     = start m
+    states               = M.elems (table m)
+    edges (State n _ tx) = brand n =<< M.toList tx
+    brand n (t, tx)      = map (\n' -> (n, t, n')) (S.toList tx)
+    accept ss            = [ n | State n Accept _ <- ss ]
 
 -- Rabin–Scott powerset construction
-toDFA :: (Ord a, Ord t) => NFA a t -> D.DFA (Set a) t
+toDFA :: (Ord n, Ord t) => NFA n t -> D.DFA (Set n) t
 toDFA m = let (ts, as) = loop empty [flatten start']
            in D.fromList ts as (label start')
   where
     start'  = free m (start m)
-    state a = fromMaybe (dummy a) (lookup a (table m))
-    dummy a = State a False M.empty
-    label   = S.map (\(State a _ _) -> a)
+    state n = fromMaybe (dummy n) (lookup n (table m))
+    dummy n = State n Reject mempty
+    label   = S.map (\(State n _ _) -> n)
 
     -- loop :: Set (Set s) -> [State (Set s) t] -> ([(Set s, t, Set s)], [Set s])
     loop = loop' ([], [])
       where
         loop' acc _    []   = acc
-        loop' (ts, as) done (s@(State a x _):ss)
-          | a `S.member` done = loop' (ts, as) done ss
+        loop' (ts, as) done (s@(State n x _):ss)
+          | n `S.member` done = loop' (ts, as) done ss
           | otherwise         = let ts' = tuple s
-                                    ss' = map (\(_, _, b) -> flatten (S.map state b)) ts'
-                                 in loop' (ts' ++ ts, [a | x] ++ as)
-                                          (a `insert` done)
+                                    ss' = map (\(_, _, n') -> flatten (S.map state n')) ts'
+                                 in loop' (ts' ++ ts, [n | x == Accept] ++ as)
+                                          (n `insert` done)
                                           (ss' ++ ss)
 
     -- tuple :: State (Set s) t -> [(Set s, t, Set s)]
-    tuple (State a _ ts) = edges
+    tuple (State n _ tx) = edges
       where
-        edges = map (\(Just t, b) -> (a, t, join b)) (M.toList ts)
+        edges = map (\(Just t, n') -> (n, t, join n')) (M.toList tx)
         join  = S.unions . S.toList
 
     -- flatten :: Set (State s t) -> State (Set s) t
-    flatten ss = State (label freed) (accept freed) (edges freed)
+    flatten ss = State (label freed) (mode freed) (edges freed)
       where
-        freed     = fold (S.union . free m) empty ss
-        accept    = S.fold (\(State _ x _) -> (|| x)) False
-        edges     = S.fold (M.unionWith merge . tx) M.empty
+        freed     = S.fold (S.union . free m) empty ss
+        mode      = S.fold (\(State _ x _) -> (<> x)) mempty
+        edges     = S.fold (M.unionWith merge . tx) mempty
         merge a b = S.singleton (S.unions (S.toList a ++ S.toList b))
 
         tx s@(State _ _ t) = M.fromList (fx s =<< M.toList t)
@@ -124,97 +145,97 @@ toDFA m = let (ts, as) = loop empty [flatten start']
 -- This follows paths of at most one edge from the current state: it does
 -- not recursively follow free transitions.
 --
-read :: (Ord a, Ord t) => NFA a t -> State a t -> Maybe t -> Set (State a t)
-read m (State _ _ ts) t = case lookup t ts of
+read :: (Ord n, Ord t) => NFA n t -> State n t -> Maybe t -> Set (State n t)
+read m (State _ _ tx) t = case lookup t tx of
   Nothing -> empty
-  Just as -> fold f empty as
+  Just as -> S.fold f empty as
   where
     -- If a is a non-existent state, we treat it the same as a "stuck"
     -- state and do not add it to the set of outcome states. The empty
     -- set is then a representation of a single "stuck" state.
-    f a r = maybe r (`insert` r) (lookup a (table m))
+    f n acc = maybe acc (`insert` acc) (lookup n (table m))
 
 -- Produce a set of outcome states after following (and also not following)
 -- all free transitions, recursively, from the given state.
 --
-free :: (Ord a, Ord t) => NFA a t -> State a t -> Set (State a t)
+free :: (Ord n, Ord t) => NFA n t -> State n t -> Set (State n t)
 free m s = s `insert` loop empty s
   where
     loop acc q
       | q `S.member` acc = acc
       | otherwise        = let acc' = q `insert` acc
                                qs   = read m q Nothing
-                            in fold S.union qs (S.map (loop acc') qs)
+                            in S.fold S.union qs (S.map (loop acc') qs)
 
 -- Produce a set of outcome states after reading the given token (which
 -- may not be Nothing) from the given state.
 --
 -- This traverses all free transitions /after/ reading the input token.
 --
-step :: (Ord a, Ord t) => NFA a t -> State a t -> t -> Set (State a t)
-step m s = fold (S.union . free m) empty . read m s . Just
+step :: (Ord n, Ord t) => NFA n t -> State n t -> t -> Set (State n t)
+step m s = S.fold (S.union . free m) empty . read m s . Just
 
 -- Run the simulation, producing True if the machine accepted the input
 -- or False otherwise.
 --
-member :: (Ord a, Ord t) => [t] -> NFA a t -> Bool
-member ts m = accept (eval ts)
+member :: (Ord n, Ord t) => [t] -> NFA n t -> Bool
+member ts m = mode (eval ts) == Accept
   where
     eval = foldl' step' (ap free start m)
 
     -- Input is accepted if any accept state is in the outcome set
-    accept = S.fold (\(State _ x _) -> (|| x)) False
+    mode = S.fold (\(State _ x _) -> (<> x)) mempty
 
     -- Take a set of start states and produce a set of outcome states
-    step' ss t = fold (\s -> S.union (step m s t)) empty ss
+    step' ss t = S.fold (\s -> S.union (step m s t)) empty ss
 
 -- Run the simulation, generating all input strings of the language
 --
-elems :: (Ord a, Ord t) => NFA a t -> [t]
+elems :: (Ord n, Ord t) => NFA n t -> [t]
 elems = undefined
 
-union :: NFA a t -> NFA a t -> NFA a t
+union :: NFA n t -> NFA n t -> NFA n t
 union = undefined
 
-difference :: NFA a t -> NFA a t -> NFA a t
+difference :: NFA n t -> NFA n t -> NFA n t
 difference = undefined
 
-intersection :: NFA a t -> NFA a t -> NFA a t
+intersection :: NFA n t -> NFA n t -> NFA n t
 intersection = undefined
 
-concat :: NFA a t -> NFA a t -> NFA a t
+concat :: NFA n t -> NFA n t -> NFA n t
 concat = undefined
 
-complement :: NFA a t -> NFA a t
+complement :: NFA n t -> NFA n t
 complement = undefined
 
-kleene :: NFA a t -> NFA a t
+kleene :: NFA n t -> NFA n t
 kleene = undefined
 
-isSubsetOf :: NFA a t -> NFA a t -> NFA a t
+isSubsetOf :: NFA n t -> NFA n t -> NFA n t
 isSubsetOf = undefined
 
-reverse :: NFA a t -> NFA a t
+reverse :: NFA n t -> NFA n t
 reverse = undefined
 
 -- Construct an NFA which accepts the /reversed/ inputs that the original
 -- DFA accepts, and rejects the /reversed/ inputs that the original DFA
 -- rejects.
 --
-reverseDFA :: (Bounded a, Enum a, Ord a, Ord t) => D.DFA a t -> NFA a t
+reverseDFA :: (Bounded n, Enum n, Ord n, Ord t) => D.DFA n t -> NFA n t
 reverseDFA m = fromList (ss' ++ ts') as' s'
   where
     (ts, as, s) = D.toList m
 
     -- Start state label is the next "available" label
     s'   = maybe minBound succ (max' ts)
-    max' = max <$> foldr (max . Just . (\(a, _, _) -> a)) Nothing
+    max' = max <$> foldr (max . Just . (\(n, _, _) -> n)) Nothing
                <*> foldr (max . Just . (\(_, _, b) -> b)) Nothing
 
-    ss' = map (\a -> (s', Nothing, a)) as
+    ss' = map (\n' -> (s', Nothing, n')) as
       -- Free transitions from each former accept state to new start
 
-    ts' = map (\(a, t, b) -> (b, Just t, a)) ts
+    ts' = map (\(n, t, n') -> (n', Just t, n)) ts
       -- Reverse edge direction
 
     as' = [s]
@@ -235,15 +256,18 @@ minimizeDFA = f . g
 
 -- Replace each distinct state label (of any type 'a') with a distinct label
 -- of type 'b'. Type 'b' can be any for which minBound and succ are defined.
-relabel :: (Ord a, Ord t, Ord b, Bounded b, Enum b) => NFA a t -> NFA b t
-relabel m
-  = let (ts, as, ss) = evalState rebuild (minBound, M.empty)
+relabel :: (Ord n, Ord t, Ord m, Bounded m, Enum m) => NFA n t -> NFA m t
+relabel m = relabelWithMin m minBound
+
+relabelWithMin :: (Ord n, Ord t, Ord m, Enum m) => NFA n t -> m -> NFA m t
+relabelWithMin m s
+  = let (ts, as, ss) = evalState rebuild (s, mempty)
      in fromList ts as ss
   where
     rebuild = do
       let (ts, as, ss) = toList m
-      ss' <- index ss
-      as' <- mapM index as
+      ss' <- indexOf ss
+      as' <- mapM indexOf as
       ts' <- mapM edges ts
       return (ts', as', ss')
 
@@ -252,16 +276,16 @@ relabel m
       modify (first succ)
       return n
 
-    store s = do
-      n <- fresh
-      modify (second (M.insert s n))
-      return n
+    store n = do
+      n' <- fresh
+      modify (second (M.insert n n'))
+      return n'
 
-    index s = do
-      k <- gets snd
-      maybe (store s) return (lookup s k)
+    indexOf n = do
+      tx <- gets snd
+      maybe (store n) return (lookup n tx)
 
     edges (a, t, b) = do
-      a' <- index a
-      b' <- index b
+      a' <- indexOf a
+      b' <- indexOf b
       return (a', t, b')
